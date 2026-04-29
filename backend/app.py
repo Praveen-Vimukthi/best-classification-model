@@ -25,10 +25,6 @@ PICKLE_DIR = "saved_models"
 os.makedirs(PICKLE_DIR, exist_ok=True)
 
 
-# ============================================================
-# EXACT FUNCTIONS FROM YOUR NOTEBOOK — not changed at all
-# ============================================================
-
 def extract_numerical_text(df):
     num_cols  = df.select_dtypes(include=['int16','int32','int64','float32','float64']).columns
     text_cols = df.select_dtypes(exclude=['int16','int32','int64','float32','float64']).columns
@@ -92,7 +88,6 @@ def remove_text_cols(X_train, X_test):
     return X_train_num, X_test_num
 
 def Standardize(X_train, X_test, method='standard'):
-    # your notebook used StandardScaler; we also support minmax/robust from settings
     num_cols = X_train.select_dtypes(
         include=['int16','int32','int64','float32','float64']
     ).columns
@@ -102,7 +97,7 @@ def Standardize(X_train, X_test, method='standard'):
     elif method == 'robust':
         scaler = RobustScaler()
     else:
-        scaler = StandardScaler()   # default — same as your notebook
+        scaler = StandardScaler()   
 
     X_train = pd.DataFrame(scaler.fit_transform(X_train), columns=num_cols)
     X_test  = pd.DataFrame(scaler.transform(X_test),      columns=num_cols)
@@ -120,23 +115,6 @@ def has_header(file_path):
 
     return non_numeric > len(first_row) / 2
 
-# ============================================================
-# POST /predict
-#
-# Receives from React frontend (FormData):
-#   file              – CSV upload
-#   models            – comma-separated ids e.g. "knn,svm"
-#   test_size         – float  (from trainTestSplit slider)
-#   random_state      – int    (from randomState input)
-#   label_col_index   – int    (-1 = last column)
-#   missing_method    – "drop" | "impute"
-#   imbalance_method  – "skip" | "under" | "over" | "smote"
-#   scaling_method    – "none" | "standard" | "minmax" | "robust"
-#   primary_metric    – "accuracy" | "precision" | "recall" | "f1"
-#   knn_neighbors     – int  (n_neighbors for KNN)
-# ============================================================
-
-# maps frontend model id → (sklearn class, needs_std flag)
 MODEL_REGISTRY = {
     'logistic':      (LogisticRegression,  True),
     'knn':           (KNeighborsClassifier, True),
@@ -146,7 +124,6 @@ MODEL_REGISTRY = {
     'naive_bayes':   (GaussianNB,      False),
 }
 
-# human-readable names matching your notebook
 MODEL_NAMES = {
     'logistic':      'Logistic Regression',
     'knn':           'K-Nearest Neighbors',
@@ -159,11 +136,9 @@ MODEL_NAMES = {
 @app.route('/predict', methods=['POST'])
 def predict():
 
-    # ── 1. Validate file ────────────────────────────────────────────────────
     if 'file' not in request.files:
         return jsonify({'error': 'No CSV file uploaded'}), 400
 
-    # ── 2. Read all settings from frontend ──────────────────────────────────
     selected_ids = [m.strip() for m in request.form.get('models', '').split(',') if m.strip()]
     if not selected_ids:
         return jsonify({'error': 'No models selected'}), 400
@@ -184,7 +159,6 @@ def predict():
     except ValueError as e:
         return jsonify({'error': f'Invalid config value: {e}'}), 400
 
-    # ── 3. Read CSV ─────────────────────────────────────────────────────────
     try:
         
         if not os.path.exists("uploads"):
@@ -207,12 +181,10 @@ def predict():
     if df.shape[1] < 2:
         return jsonify({'error': 'CSV must have at least 2 columns'}), 400
 
-    # ── 4. handle_missing_values() — exact notebook function ────────────────
     df = handle_missing_values(df, missing_method)
     if df.shape[0] < 10:
         return jsonify({'error': 'Too few rows after handling missing values'}), 400
 
-    # ── 5. split() — exact notebook function ────────────────────────────────
     try:
         df, X, Y_encoded, X_train, Y_train, X_test, Y_test, le = split(
             df, label_col_index, test_size, random_state
@@ -220,13 +192,11 @@ def predict():
     except Exception as e:
         return jsonify({'error': f'Train/test split failed: {e}'}), 400
 
-    # ── 6. handle_imbalace() — exact notebook function ──────────────────────
     try:
         X_train, Y_train = handle_imbalace(X_train, Y_train, imbalance_method)
     except Exception as e:
         return jsonify({'error': f'Imbalance handling failed: {e}'}), 400
 
-    # ── 7. Train each model — exact notebook loop ───────────────────────────
     results         = []
     best_model_name = None
     best_score      = -1
@@ -235,7 +205,6 @@ def predict():
 
     avg = 'binary' if len(np.unique(Y_encoded)) == 2 else 'weighted'
 
-    # Restore DataFrame column names if lost after imbalance handling
     original_num_cols = list(extract_numerical_text(X)[0].columns)
     if not isinstance(X_train, pd.DataFrame):
         X_train = pd.DataFrame(X_train, columns=original_num_cols[:X_train.shape[1]])
@@ -251,12 +220,9 @@ def predict():
 
         scaler = None
         try:
-            # Standardize() — exact notebook function
-            # only run if model needs it AND user hasn't chosen "none"
             if needs_std and scaling_method != 'none':
                 X_tr, X_te, scaler = Standardize(X_tr, X_te, scaling_method)
 
-            # Build model with correct hyperparams from frontend settings
             if model_id == 'knn':
                 clf = KNeighborsClassifier(n_neighbors=knn_neighbors)
             elif model_id == 'logistic':
@@ -276,7 +242,6 @@ def predict():
             cv_folds = int(request.form.get('cv_folds', 5))
 
             if use_cv:
-                # combine train+test back together for CV to use all data
                 X_all = pd.concat([X_tr, X_te], axis=0).reset_index(drop=True)
                 Y_all = np.concatenate([Y_train, Y_test])
 
@@ -285,7 +250,6 @@ def predict():
                 rec  = float(cross_val_score(clf, X_all, Y_all, cv=cv_folds, scoring='recall_weighted').mean())
                 f1   = float(cross_val_score(clf, X_all, Y_all, cv=cv_folds, scoring='f1_weighted').mean())
 
-                # still fit on full training data so pickle has a trained model
                 clf.fit(X_tr, Y_train)
             else:
                 clf.fit(X_tr, Y_train)
@@ -306,7 +270,6 @@ def predict():
                 'f1':        round(f1,   4),
             })
 
-            # exact notebook: track best by chosen metric
             if score > best_score:
                 best_score      = score
                 best_model_name = MODEL_NAMES[model_id]
@@ -320,7 +283,6 @@ def predict():
                 'error':     str(e),
             })
 
-    # ── 8. Save best model as pickle ────────────────────────────────────────
     pickle_saved = False
     if best_clf is not None:
         pickle_data = {
@@ -350,8 +312,6 @@ def predict():
         'pickle_saved': pickle_saved,
     })
 
-
-# ── GET /download-model ──────────────────────────────────────────────────────
 @app.route('/download-model', methods=['GET'])
 def download_model():
     path = os.path.join(PICKLE_DIR, 'best_model.pkl')
@@ -360,7 +320,6 @@ def download_model():
     return send_file(path, as_attachment=True, download_name='best_model.pkl')
 
 
-# ── Health check ─────────────────────────────────────────────────────────────
 @app.route('/', methods=['GET'])
 def health():
     return jsonify({'status': 'ML backend running'})
