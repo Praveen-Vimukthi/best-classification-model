@@ -49,5 +49,5 @@ Machine Learning:
 Clone the repository:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/best-model-predictor.git
+git clone https://github.com/Praveen-Vimukthi/best-model-predictor.git
 cd best-model-predictor
