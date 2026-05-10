@@ -1,7 +1,13 @@
-
-import { Trophy, Layers, TrendingUp, Upload, FileSpreadsheet, Loader2, Info, Check, Download, X } from 'lucide-react';
+import { useState } from 'react';
+import {
+  Trophy, Layers, TrendingUp, Upload, FileSpreadsheet, Loader2, Info, X,
+  ImageIcon, BarChart3, Target,
+} from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
-import { AppSettings } from '@/types/ml';
+import {
+  AppSettings, MLModel, ModelMetrics, TaskType,
+  ClassificationMetrics, RegressionMetrics, isRegressionMetrics,
+} from '@/types/ml';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,16 +17,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import {
-  Tooltip, TooltipContent, TooltipTrigger,
-} from '@/components/ui/tooltip';
-import { MLModel, ModelMetrics } from '@/types/ml';
-import {
-  ChartContainer, ChartTooltip, ChartTooltipContent,
-} from '@/components/ui/chart';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Legend,
-  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from 'recharts';
 
 interface DashboardSectionProps {
@@ -28,41 +28,63 @@ interface DashboardSectionProps {
   selectedCount: number;
   bestModel: string | null;
   results: ModelMetrics[] | null;
+  taskType: TaskType;
   primaryMetric: string;
   isLoading: boolean;
   csvFile: File | null;
+  targetColumn: string;
+  onSetTargetColumn: (v: string) => void;
   onSetCsvFile: (file: File | null) => void;
   onRemoveCsvFile: () => void;
   onToggleModel: (id: string) => void;
   onSelectAll: () => void;
   onClearAll: () => void;
   onUploadCsv: (file: File) => void;
+  onSetTaskType: (t: TaskType) => void;
   knnSelected: boolean;
   knnNeighbors: number;
   onUpdateSettings: (updates: Partial<AppSettings>) => void;
 }
+
+const REG_METRIC_LABEL: Record<string, string> = {
+  mae: 'MAE',
+  mse: 'MSE',
+  rmse: 'RMSE',
+  r2: 'R² Score',
+};
+
+const CLASS_METRIC_LABEL: Record<string, string> = {
+  accuracy: 'Accuracy',
+  precision: 'Precision',
+  recall: 'Recall',
+  f1: 'F1 Score',
+};
 
 export function DashboardSection({
   models,
   selectedCount,
   bestModel,
   results,
+  taskType,
   primaryMetric,
   isLoading,
   csvFile,
+  targetColumn,
+  onSetTargetColumn,
   onSetCsvFile,
   onRemoveCsvFile,
   onToggleModel,
   onSelectAll,
   onClearAll,
   onUploadCsv,
+  onSetTaskType,
   knnSelected,
   knnNeighbors,
   onUpdateSettings,
 }: DashboardSectionProps) {
-
+  const isRegression = taskType === 'regression';
   const bestResult = results?.find(r => r.name === bestModel);
-  const bestMetricValue = bestResult ? bestResult[primaryMetric as keyof ModelMetrics] : null;
+  const [targetIsLast, setTargetIsLast] = useState(true);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -73,56 +95,91 @@ export function DashboardSection({
     if (csvFile) onUploadCsv(csvFile);
   };
 
-  const handleDownloadPickle = () => {
-    if (!bestModel || !bestResult) return;
-    // In production: fetch the actual pickle file from backend
-    // e.g. const res = await fetch(`/download-model?name=${bestModel}`); const blob = await res.blob();
-    const placeholderContent = `# Pickle file placeholder for model: ${bestModel}\n# Metrics: ${JSON.stringify(bestResult, null, 2)}\n# Replace with actual pickle bytes from backend.`;
-    const blob = new Blob([placeholderContent], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${bestModel.replace(/\s+/g, '_').toLowerCase()}_model.pkl`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const formatMetricValue = (v: number, key: string) => {
+    if (key === 'r2') return v.toFixed(3);
+    if (['mae', 'mse', 'rmse'].includes(key)) return v.toFixed(3);
+    return `${(v * 100).toFixed(2)}%`;
   };
 
-  const chartConfig = {
-    accuracy: { label: 'Accuracy', color: 'hsl(var(--chart-1))' },
-    precision: { label: 'Precision', color: 'hsl(var(--chart-2))' },
-    recall: { label: 'Recall', color: 'hsl(var(--chart-3))' },
-    f1: { label: 'F1 Score', color: 'hsl(var(--chart-4))' },
-  };
+  const bestMetricDisplay = bestResult
+    ? formatMetricValue((bestResult as any)[primaryMetric], primaryMetric)
+    : '—';
 
-  const barData = results?.map(r => ({
-    name: r.name.replace(' ', '\n'),
-    accuracy: +(r.accuracy * 100).toFixed(1),
-    precision: +(r.precision * 100).toFixed(1),
-    recall: +(r.recall * 100).toFixed(1),
-    f1: +(r.f1 * 100).toFixed(1),
-  })) || [];
+  const metricLabel = isRegression
+    ? REG_METRIC_LABEL[primaryMetric]
+    : CLASS_METRIC_LABEL[primaryMetric];
+
+  // Bar chart data
+  const barData = results?.map(r => {
+    if (isRegressionMetrics(r)) {
+      return { name: r.name, value: +r.r2.toFixed(3) };
+    } else {
+      const cm = r as ClassificationMetrics;
+      return { name: r.name, value: +(cm.f1 * 100).toFixed(1) };
+    }
+  }) || [];
 
   return (
     <section className="space-y-6">
       <div className="flex flex-col gap-2">
-        <h2 className="text-3xl font-bold tracking-tight">ML Model Comparator</h2>
+        <h2 className="text-3xl font-bold tracking-tight">Best Model Predictor</h2>
         <p className="text-muted-foreground">
-          Select models, upload your dataset, and find the best model
+          Choose your task, select models, upload your dataset, and find the best model
         </p>
       </div>
 
-      {/* Step 1: Model Selection */}
+      {/* Step 0: Task Type Toggle */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
+            Task Type
+          </CardTitle>
+          <CardDescription>
+            Choose whether you want to predict a category or a continuous value
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="inline-flex rounded-lg border p-1 bg-muted/30">
+            <Button
+              variant={taskType === 'classification' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => onSetTaskType('classification')}
+              className="gap-2"
+            >
+              <Target className="h-4 w-4" />
+              Classification
+            </Button>
+            <Button
+              variant={taskType === 'regression' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => onSetTaskType('regression')}
+              className="gap-2"
+            >
+              <TrendingUp className="h-4 w-4" />
+              Regression
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            {isRegression
+              ? 'Regression: predict numeric values (e.g. price, temperature). Evaluated with MAE, MSE, RMSE, R².'
+              : 'Classification: predict categories (e.g. spam/not spam). Evaluated with Accuracy, Precision, Recall, F1.'}
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Step 2: Model Selection */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">2</span>
                 Select Models
               </CardTitle>
-              <CardDescription className="mt-1">Choose which ML models to train and compare</CardDescription>
+              <CardDescription className="mt-1">
+                Choose which {isRegression ? 'regression' : 'classification'} models to train and compare
+              </CardDescription>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={onSelectAll}>Select All</Button>
@@ -156,15 +213,15 @@ export function DashboardSection({
         </CardContent>
       </Card>
 
-      {/* Step 2: Upload CSV & Predict */}
+      {/* Step 3: Upload CSV & Predict */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">2</span>
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">3</span>
             Upload Dataset & Predict
           </CardTitle>
           <CardDescription>
-            Upload a CSV file to train selected models and find the best one
+            Upload a CSV file and specify the target column
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -203,6 +260,38 @@ export function DashboardSection({
             )}
           </div>
 
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="target-is-last"
+                checked={targetIsLast}
+                onCheckedChange={(checked) => {
+                  const isLast = checked === true;
+                  setTargetIsLast(isLast);
+                  if (isLast) onSetTargetColumn('');
+                }}
+              />
+              <Label htmlFor="target-is-last" className="cursor-pointer">
+                Target is the last column in the CSV
+              </Label>
+            </div>
+
+            {!targetIsLast && (
+              <div className="space-y-2">
+                <Label htmlFor="target-col">Target Column</Label>
+                <Input
+                  id="target-col"
+                  placeholder="e.g. price, label, target"
+                  value={targetColumn}
+                  onChange={(e) => onSetTargetColumn(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Name of the column to predict.
+                </p>
+              </div>
+            )}
+          </div>
+
           {knnSelected && (
             <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
               <div className="flex items-center justify-between">
@@ -220,14 +309,12 @@ export function DashboardSection({
                 max={25}
                 step={1}
               />
-              <p className="text-xs text-muted-foreground">
-                Number of neighbors used by the KNN model.
-              </p>
             </div>
           )}
+
           <Button
             onClick={handlePredict}
-            disabled={!csvFile || selectedCount === 0 || isLoading}
+            disabled={!csvFile || selectedCount === 0 || (!targetIsLast && !targetColumn) || isLoading}
             className="w-full gap-2"
             size="lg"
           >
@@ -245,6 +332,9 @@ export function DashboardSection({
           </Button>
           {selectedCount === 0 && csvFile && (
             <p className="text-sm text-destructive text-center">Please select at least one model above</p>
+          )}
+          {csvFile && selectedCount > 0 && !targetIsLast && !targetColumn && (
+            <p className="text-sm text-destructive text-center">Please specify the target column name</p>
           )}
         </CardContent>
       </Card>
@@ -272,7 +362,7 @@ export function DashboardSection({
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold truncate">{bestModel || '—'}</div>
-                <p className="text-xs text-muted-foreground">by {primaryMetric} score</p>
+                <p className="text-xs text-muted-foreground">by {metricLabel}</p>
               </CardContent>
             </Card>
 
@@ -282,10 +372,8 @@ export function DashboardSection({
                 <TrendingUp className="h-4 w-4 text-success" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
-                  {bestMetricValue !== null ? `${((bestMetricValue as number) * 100).toFixed(1)}%` : '—'}
-                </div>
-                <p className="text-xs text-muted-foreground">{primaryMetric}</p>
+                <div className="text-2xl font-bold">{bestMetricDisplay}</div>
+                <p className="text-xs text-muted-foreground">{metricLabel}</p>
               </CardContent>
             </Card>
           </div>
@@ -300,23 +388,20 @@ export function DashboardSection({
                   </div>
                   <div>
                     <CardTitle className="text-success">Best Performing Model</CardTitle>
-                    <CardDescription>Based on {primaryMetric} metric</CardDescription>
+                    <CardDescription>Based on {metricLabel}</CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex flex-wrap items-center gap-4">
-                    <p className="text-2xl font-bold">{bestModel}</p>
-                    <Badge variant="default" className="bg-success text-success-foreground text-lg px-3 py-1">
-                      {primaryMetric}: {((bestResult[primaryMetric as keyof ModelMetrics] as number) * 100).toFixed(2)}%
-                    </Badge>
-                  </div>
-                  <Button onClick={handleDownloadPickle} className="gap-2" variant="default">
-                    <Download className="h-4 w-4" />
-                    Download .pkl File
-                  </Button>
+                <div className="flex flex-wrap items-center gap-4">
+                  <p className="text-2xl font-bold">{bestModel}</p>
+                  <Badge variant="default" className="bg-success text-success-foreground text-lg px-3 py-1">
+                    {metricLabel}: {bestMetricDisplay}
+                  </Badge>
                 </div>
+                <p className="text-xs text-muted-foreground mt-3">
+                  Model export (.pkl) will be available once a Python backend is connected.
+                </p>
               </CardContent>
             </Card>
           )}
@@ -331,10 +416,21 @@ export function DashboardSection({
                     <Info className="h-4 w-4 text-muted-foreground" />
                   </TooltipTrigger>
                   <TooltipContent className="max-w-[300px]">
-                    <p><strong>Accuracy:</strong> Overall correctness</p>
-                    <p><strong>Precision:</strong> True positives / All positive predictions</p>
-                    <p><strong>Recall:</strong> True positives / All actual positives</p>
-                    <p><strong>F1:</strong> Harmonic mean of precision and recall</p>
+                    {isRegression ? (
+                      <>
+                        <p><strong>MAE:</strong> Mean Absolute Error (lower is better)</p>
+                        <p><strong>MSE:</strong> Mean Squared Error (lower is better)</p>
+                        <p><strong>RMSE:</strong> Root Mean Squared Error (lower is better)</p>
+                        <p><strong>R²:</strong> Coefficient of determination (higher is better)</p>
+                      </>
+                    ) : (
+                      <>
+                        <p><strong>Accuracy:</strong> Overall correctness</p>
+                        <p><strong>Precision:</strong> True positives / All positive predictions</p>
+                        <p><strong>Recall:</strong> True positives / All actual positives</p>
+                        <p><strong>F1:</strong> Harmonic mean of precision and recall</p>
+                      </>
+                    )}
                   </TooltipContent>
                 </Tooltip>
               </CardTitle>
@@ -344,10 +440,21 @@ export function DashboardSection({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Model</TableHead>
-                    <TableHead className="text-right">Accuracy</TableHead>
-                    <TableHead className="text-right">Precision</TableHead>
-                    <TableHead className="text-right">Recall</TableHead>
-                    <TableHead className="text-right">F1 Score</TableHead>
+                    {isRegression ? (
+                      <>
+                        <TableHead className="text-right">MAE</TableHead>
+                        <TableHead className="text-right">MSE</TableHead>
+                        <TableHead className="text-right">RMSE</TableHead>
+                        <TableHead className="text-right">R² Score</TableHead>
+                      </>
+                    ) : (
+                      <>
+                        <TableHead className="text-right">Accuracy</TableHead>
+                        <TableHead className="text-right">Precision</TableHead>
+                        <TableHead className="text-right">Recall</TableHead>
+                        <TableHead className="text-right">F1 Score</TableHead>
+                      </>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -369,10 +476,21 @@ export function DashboardSection({
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-mono">{(result.accuracy * 100).toFixed(2)}%</TableCell>
-                        <TableCell className="text-right font-mono">{(result.precision * 100).toFixed(2)}%</TableCell>
-                        <TableCell className="text-right font-mono">{(result.recall * 100).toFixed(2)}%</TableCell>
-                        <TableCell className="text-right font-mono">{(result.f1 * 100).toFixed(2)}%</TableCell>
+                        {isRegressionMetrics(result) ? (
+                          <>
+                            <TableCell className="text-right font-mono">{result.mae.toFixed(3)}</TableCell>
+                            <TableCell className="text-right font-mono">{result.mse.toFixed(3)}</TableCell>
+                            <TableCell className="text-right font-mono">{result.rmse.toFixed(3)}</TableCell>
+                            <TableCell className="text-right font-mono">{result.r2.toFixed(3)}</TableCell>
+                          </>
+                        ) : (
+                          <>
+                            <TableCell className="text-right font-mono">{((result as ClassificationMetrics).accuracy * 100).toFixed(2)}%</TableCell>
+                            <TableCell className="text-right font-mono">{((result as ClassificationMetrics).precision * 100).toFixed(2)}%</TableCell>
+                            <TableCell className="text-right font-mono">{((result as ClassificationMetrics).recall * 100).toFixed(2)}%</TableCell>
+                            <TableCell className="text-right font-mono">{((result as ClassificationMetrics).f1 * 100).toFixed(2)}%</TableCell>
+                          </>
+                        )}
                       </TableRow>
                     );
                   })}
@@ -381,51 +499,45 @@ export function DashboardSection({
             </CardContent>
           </Card>
 
-          {/* Charts */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card className="p-6">
-              <CardTitle className="mb-4">Model Comparison</CardTitle>
-              <ChartContainer config={chartConfig} className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={barData} layout="vertical">
-                    <XAxis type="number" domain={[0, 100]} />
-                    <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11 }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Legend />
-                    <Bar dataKey="accuracy" fill="hsl(var(--chart-1))" name="Accuracy" />
-                    <Bar dataKey="precision" fill="hsl(var(--chart-2))" name="Precision" />
-                    <Bar dataKey="recall" fill="hsl(var(--chart-3))" name="Recall" />
-                    <Bar dataKey="f1" fill="hsl(var(--chart-4))" name="F1 Score" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </Card>
+          {/* Comparison chart */}
+          <Card className="p-6">
+            <CardTitle className="mb-4 flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              {isRegression ? 'R² Score Comparison' : 'F1 Score Comparison'}
+            </CardTitle>
+            <ChartContainer config={{ value: { label: metricLabel, color: 'hsl(var(--primary))' } }} className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={barData} layout="vertical">
+                  <XAxis type="number" domain={isRegression ? [0, 1] : [0, 100]} />
+                  <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 11 }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Legend />
+                  <Bar dataKey="value" fill="hsl(var(--primary))" name={isRegression ? 'R²' : 'F1 Score'} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </Card>
 
-            {bestResult && (
-              <Card className="p-6">
-                <CardTitle className="mb-4">Best Model Profile</CardTitle>
-                <ChartContainer config={chartConfig} className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart data={[
-                      { metric: 'Accuracy', value: bestResult.accuracy * 100 },
-                      { metric: 'Precision', value: bestResult.precision * 100 },
-                      { metric: 'Recall', value: bestResult.recall * 100 },
-                      { metric: 'F1 Score', value: bestResult.f1 * 100 },
-                    ]}>
-                      <PolarGrid />
-                      <PolarAngleAxis dataKey="metric" />
-                      <PolarRadiusAxis domain={[0, 100]} />
-                      <Radar
-                        name={bestModel!}
-                        dataKey="value"
-                        stroke="hsl(var(--primary))"
-                        fill="hsl(var(--primary))"
-                        fillOpacity={0.3}
-                      />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              </Card>
+          {/* Visualization placeholders (backend-rendered) */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <VisualizationPlaceholder
+              title="Correlation Heatmap"
+              description="Pairwise feature correlations from the dataset."
+            />
+            <VisualizationPlaceholder
+              title="Feature Importance"
+              description="Importance scores from tree-based models."
+            />
+            {isRegression ? (
+              <VisualizationPlaceholder
+                title="Predicted vs Actual"
+                description="Scatter plot comparing predictions to true values."
+              />
+            ) : (
+              <VisualizationPlaceholder
+                title="Confusion Matrix"
+                description="Counts of true vs predicted labels for the best model."
+              />
             )}
           </div>
         </>
@@ -437,11 +549,31 @@ export function DashboardSection({
             <Layers className="h-12 w-12 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-semibold">No Results Yet</h3>
             <p className="text-muted-foreground mt-2">
-              Select models and upload a CSV dataset to see comparison results
+              Choose a task, select models, and upload a CSV to see comparison results
             </p>
           </div>
         </Card>
       )}
     </section>
+  );
+}
+
+function VisualizationPlaceholder({ title, description }: { title: string; description: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col items-center justify-center text-center gap-2 rounded-lg border-2 border-dashed bg-muted/20 p-8 min-h-[220px]">
+          <ImageIcon className="h-10 w-10 text-muted-foreground/60" />
+          <p className="text-sm text-muted-foreground">Rendered by backend</p>
+          <p className="text-xs text-muted-foreground">
+            Connect a Python backend to display this image
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

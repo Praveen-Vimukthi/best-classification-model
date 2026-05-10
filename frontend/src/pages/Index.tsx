@@ -20,14 +20,22 @@ const Index = () => {
     bestModel,
     isLoading,
     csvFile,
+    targetColumn,
+    setTargetColumn,
     setCsvFile,
     removeCsvFile,
     toggleModel,
     selectAllModels,
     clearAllModels,
     updateSettings,
+    setTaskType,
     trainFromCsv,
   } = useMLState();
+
+  const primaryMetric =
+    settings.taskType === 'regression'
+      ? settings.primaryMetricRegression
+      : settings.primaryMetricClassification;
 
   const renderSection = () => {
     switch (currentSection) {
@@ -38,16 +46,20 @@ const Index = () => {
             selectedCount={selectedModels.length}
             bestModel={bestModel}
             results={trainingResults}
-            primaryMetric={settings.primaryMetric}
+            taskType={settings.taskType}
+            primaryMetric={primaryMetric}
             isLoading={isLoading}
             csvFile={csvFile}
+            targetColumn={targetColumn}
+            onSetTargetColumn={setTargetColumn}
             onSetCsvFile={setCsvFile}
             onRemoveCsvFile={removeCsvFile}
             onToggleModel={toggleModel}
             onSelectAll={selectAllModels}
             onClearAll={clearAllModels}
             onUploadCsv={trainFromCsv}
-            knnSelected={selectedModels.some(m => m.id === 'knn')}
+            onSetTaskType={setTaskType}
+            knnSelected={selectedModels.some(m => m.id === 'knn' || m.id === 'knn_reg')}
             knnNeighbors={settings.knnNeighbors}
             onUpdateSettings={updateSettings}
           />

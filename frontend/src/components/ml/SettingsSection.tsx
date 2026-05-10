@@ -6,6 +6,7 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Badge } from '@/components/ui/badge';
 import { AppSettings } from '@/types/ml';
 
 interface SettingsSectionProps {
@@ -14,13 +15,18 @@ interface SettingsSectionProps {
 }
 
 export function SettingsSection({ settings, onUpdate }: SettingsSectionProps) {
+  const isRegression = settings.taskType === 'regression';
+
   return (
     <section className="space-y-6">
       <div className="flex flex-col gap-2">
         <h2 className="text-3xl font-bold tracking-tight">Settings</h2>
         <p className="text-muted-foreground">
-          Configure training parameters and evaluation metrics
+          Configure preprocessing, training, and evaluation options
         </p>
+        <Badge variant="secondary" className="w-fit">
+          Current task: {isRegression ? 'Regression' : 'Classification'}
+        </Badge>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -28,10 +34,10 @@ export function SettingsSection({ settings, onUpdate }: SettingsSectionProps) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Settings2 className="h-5 w-5" />
-              Basic Settings
+              Preprocessing
             </CardTitle>
             <CardDescription>
-              Core parameters for model training
+              How the dataset is prepared before training
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -62,17 +68,7 @@ export function SettingsSection({ settings, onUpdate }: SettingsSectionProps) {
             </div>
 
             <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                Random State
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-4 w-4 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Seed for reproducible results
-                  </TooltipContent>
-                </Tooltip>
-              </Label>
+              <Label>Random State</Label>
               <Input
                 type="number"
                 value={settings.randomState}
@@ -81,24 +77,12 @@ export function SettingsSection({ settings, onUpdate }: SettingsSectionProps) {
             </div>
 
             <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                Missing Value Handling
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-4 w-4 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    How to handle missing values in the dataset
-                  </TooltipContent>
-                </Tooltip>
-              </Label>
+              <Label>Missing Value Handling</Label>
               <Select
                 value={settings.missingValueHandling}
                 onValueChange={(value) => onUpdate({ missingValueHandling: value as AppSettings['missingValueHandling'] })}
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="drop">Drop rows with missing values</SelectItem>
                   <SelectItem value="mean">Fill with mean</SelectItem>
@@ -109,65 +93,12 @@ export function SettingsSection({ settings, onUpdate }: SettingsSectionProps) {
             </div>
 
             <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                Imbalance Handling
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-4 w-4 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Technique to handle class imbalance
-                  </TooltipContent>
-                </Tooltip>
-              </Label>
-              <Select
-                value={settings.imbalanceHandling}
-                onValueChange={(value) => onUpdate({ imbalanceHandling: value as AppSettings['imbalanceHandling'] })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  <SelectItem value="smote">SMOTE (Oversampling)</SelectItem>
-                  <SelectItem value="undersample">Random Undersampling</SelectItem>
-                  <SelectItem value="oversample">Random Oversampling</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sliders className="h-5 w-5" />
-              Advanced Settings
-            </CardTitle>
-            <CardDescription>
-              Fine-tune model evaluation parameters
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                Scaling Method
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-4 w-4 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Feature scaling technique
-                  </TooltipContent>
-                </Tooltip>
-              </Label>
+              <Label>Feature Scaling</Label>
               <Select
                 value={settings.scalingMethod}
                 onValueChange={(value) => onUpdate({ scalingMethod: value as AppSettings['scalingMethod'] })}
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
                   <SelectItem value="standard">Standard Scaler (Z-score)</SelectItem>
@@ -177,47 +108,89 @@ export function SettingsSection({ settings, onUpdate }: SettingsSectionProps) {
               </Select>
             </div>
 
-            <div className="space-y-2">
+            {!isRegression && (
+              <div className="space-y-2">
+                <Label>Imbalance Handling</Label>
+                <Select
+                  value={settings.imbalanceHandling}
+                  onValueChange={(value) => onUpdate({ imbalanceHandling: value as AppSettings['imbalanceHandling'] })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="smote">SMOTE (Oversampling)</SelectItem>
+                    <SelectItem value="undersample">Random Undersampling</SelectItem>
+                    <SelectItem value="oversample">Random Oversampling</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
               <Label className="flex items-center gap-2">
-                Primary Evaluation Metric
+                Text data is valuable for training
                 <Tooltip>
                   <TooltipTrigger>
                     <Info className="h-4 w-4 text-muted-foreground" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    Metric used to determine the best model
+                    Include text columns when training models
                   </TooltipContent>
                 </Tooltip>
               </Label>
-              <Select
-                value={settings.primaryMetric}
-                onValueChange={(value) => onUpdate({ primaryMetric: value as AppSettings['primaryMetric'] })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="accuracy">Accuracy</SelectItem>
-                  <SelectItem value="precision">Precision</SelectItem>
-                  <SelectItem value="recall">Recall</SelectItem>
-                  <SelectItem value="f1">F1 Score</SelectItem>
-                </SelectContent>
-              </Select>
+              <Switch
+                checked={settings.textDataValuable}
+                onCheckedChange={(checked) => onUpdate({ textDataValuable: checked })}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sliders className="h-5 w-5" />
+              Training & Evaluation
+            </CardTitle>
+            <CardDescription>
+              Metrics and validation strategy
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label>Primary Evaluation Metric</Label>
+              {isRegression ? (
+                <Select
+                  value={settings.primaryMetricRegression}
+                  onValueChange={(value) => onUpdate({ primaryMetricRegression: value as AppSettings['primaryMetricRegression'] })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="r2">R² Score (higher is better)</SelectItem>
+                    <SelectItem value="mae">MAE (lower is better)</SelectItem>
+                    <SelectItem value="mse">MSE (lower is better)</SelectItem>
+                    <SelectItem value="rmse">RMSE (lower is better)</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Select
+                  value={settings.primaryMetricClassification}
+                  onValueChange={(value) => onUpdate({ primaryMetricClassification: value as AppSettings['primaryMetricClassification'] })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="accuracy">Accuracy</SelectItem>
+                    <SelectItem value="precision">Precision</SelectItem>
+                    <SelectItem value="recall">Recall</SelectItem>
+                    <SelectItem value="f1">F1 Score</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2">
-                  K-Nearest Neighbors: K value
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <Info className="h-4 w-4 text-muted-foreground" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Number of neighbors used by the KNN model. Only applied if KNN is selected.
-                    </TooltipContent>
-                  </Tooltip>
-                </Label>
+                <Label>K-Nearest Neighbors: K value</Label>
                 <span className="text-sm font-mono text-muted-foreground">
                   {settings.knnNeighbors}
                 </span>
@@ -269,9 +242,9 @@ export function SettingsSection({ settings, onUpdate }: SettingsSectionProps) {
         <CardContent className="flex items-center gap-4 py-6">
           <Beaker className="h-8 w-8 text-muted-foreground" />
           <div>
-            <p className="font-medium">Experiment Tracking</p>
+            <p className="font-medium">Experiment Settings</p>
             <p className="text-sm text-muted-foreground">
-              All settings are applied to the next training run. Results are compared across experiments.
+              All settings are applied to the next training run.
             </p>
           </div>
         </CardContent>

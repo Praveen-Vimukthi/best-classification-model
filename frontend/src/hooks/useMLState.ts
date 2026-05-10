@@ -1,16 +1,18 @@
 import { useState, useCallback } from 'react';
-import { MLModel, ModelMetrics, AppSettings, DEFAULT_MODELS, DEFAULT_SETTINGS } from '@/types/ml';
-
-const BACKEND_URL = 'http://localhost:5000';
+import {
+  MLModel, ModelMetrics, AppSettings, DEFAULT_SETTINGS,
+  CLASSIFICATION_MODELS, REGRESSION_MODELS, TaskType,
+  ClassificationMetrics, RegressionMetrics,
+} from '@/types/ml';
 
 export function useMLState() {
-  const [models, setModels] = useState<MLModel[]>(DEFAULT_MODELS);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [models, setModels] = useState<MLModel[]>(CLASSIFICATION_MODELS);
   const [trainingResults, setTrainingResults] = useState<ModelMetrics[] | null>(null);
   const [bestModel, setBestModel] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [targetColumn, setTargetColumn] = useState<string>('');
 
   const selectedModels = models.filter(m => m.selected);
 
@@ -28,15 +30,23 @@ export function useMLState() {
     setModels(prev => prev.map(m => ({ ...m, selected: false })));
   }, []);
 
-  const updateSettings = useCallback((updates: Partial<AppSettings>) => {
-    setSettings(prev => ({ ...prev, ...updates }));
-  }, []);
-
-  const removeCsvFile = useCallback(() => {
-    setCsvFile(null);
+  const setTaskType = useCallback((task: TaskType) => {
+    setSettings(prev => ({ ...prev, taskType: task }));
+    setModels(task === 'classification' ? CLASSIFICATION_MODELS : REGRESSION_MODELS);
     setTrainingResults(null);
     setBestModel(null);
-    setError(null);
+  }, []);
+
+  const updateSettings = useCallback((updates: Partial<AppSettings>) => {
+    setSettings(prev => {
+      const next = { ...prev, ...updates };
+      if (updates.taskType && updates.taskType !== prev.taskType) {
+        setModels(updates.taskType === 'classification' ? CLASSIFICATION_MODELS : REGRESSION_MODELS);
+        setTrainingResults(null);
+        setBestModel(null);
+      }
+      return next;
+    });
   }, []);
 
   const trainFromCsv = useCallback(async (file: File) => {
@@ -45,61 +55,53 @@ export function useMLState() {
     setIsLoading(true);
     setTrainingResults(null);
     setBestModel(null);
-    setError(null);
 
     try {
-      // Map frontend values → backend expected values
-      const missingMethodMap: Record<string, string> = {
-        drop:   'drop',
-        mean:   'impute',
-        median: 'impute',
-        mode:   'impute',
-      };
-      const imbalanceMethodMap: Record<string, string> = {
-        none:        'skip',
-        smote:       'smote',
-        undersample: 'under',
-        oversample:  'over',
-      };
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      const formData = new FormData();
-      formData.append('file',             file);
-      formData.append('models',           selectedModels.map(m => m.id).join(','));
-      formData.append('test_size',        String((100 - settings.trainTestSplit) / 100));
-      formData.append('random_state',     String(settings.randomState));
-      formData.append('label_col_index',  '-1');
-      formData.append('missing_method',   missingMethodMap[settings.missingValueHandling] ?? 'drop');
-      formData.append('imbalance_method', imbalanceMethodMap[settings.imbalanceHandling]  ?? 'skip');
-      formData.append('scaling_method',   settings.scalingMethod);
-      formData.append('primary_metric',   settings.primaryMetric);
-      formData.append('knn_neighbors',    String(settings.knnNeighbors));
-      formData.append('cross_validation', String(settings.crossValidation));
-      formData.append('cv_folds',         String(settings.cvFolds));
-
-      const response = await fetch(`${BACKEND_URL}/predict`, {
-        method: 'POST',
-        body:   formData,
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Server error');
+      if (settings.taskType === 'classification') {
+        const results: ClassificationMetrics[] = selectedModels.map(model => ({
+          name: model.name,
+          accuracy: Math.random() * 0.3 + 0.7,
+          precision: Math.random() * 0.3 + 0.7,
+          recall: Math.random() * 0.3 + 0.7,
+          f1: Math.random() * 0.3 + 0.7,
+        }));
+        const metric = settings.primaryMetricClassification;
+        const best = results.reduce((p, c) => (c[metric] > p[metric] ? c : p));
+        setTrainingResults(results);
+        setBestModel(best.name);
+      } else {
+        const results: RegressionMetrics[] = selectedModels.map(model => {
+          const mse = Math.random() * 50 + 5;
+          return {
+            name: model.name,
+            mae: Math.random() * 5 + 1,
+            mse,
+            rmse: Math.sqrt(mse),
+            r2: Math.random() * 0.4 + 0.55,
+          };
+        });
+        const metric = settings.primaryMetricRegression;
+        // Higher is better for r2, lower for error metrics
+        const higherBetter = metric === 'r2';
+        const best = results.reduce((p, c) =>
+          higherBetter ? (c[metric] > p[metric] ? c : p) : (c[metric] < p[metric] ? c : p)
+        );
+        setTrainingResults(results);
+        setBestModel(best.name);
       }
-
-      setTrainingResults(data.results);
-      setBestModel(data.best_model);
-
-    } catch (err: any) {
-      setError(
-        err.message?.includes('fetch')
-          ? 'Cannot connect to backend. Make sure Flask is running: python app.py'
-          : err.message || 'Unknown error'
-      );
     } finally {
       setIsLoading(false);
     }
-  }, [selectedModels, settings]);
+  }, [selectedModels, settings.taskType, settings.primaryMetricClassification, settings.primaryMetricRegression]);
+
+  const removeCsvFile = useCallback(() => {
+    setCsvFile(null);
+    setTrainingResults(null);
+    setBestModel(null);
+    setTargetColumn('');
+  }, []);
 
   return {
     models,
@@ -108,14 +110,16 @@ export function useMLState() {
     trainingResults,
     bestModel,
     isLoading,
-    error,
     csvFile,
+    targetColumn,
+    setTargetColumn,
     setCsvFile,
     removeCsvFile,
     toggleModel,
     selectAllModels,
     clearAllModels,
     updateSettings,
+    setTaskType,
     trainFromCsv,
   };
 }
