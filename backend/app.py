@@ -32,6 +32,37 @@ def extract_numerical_text(df):
     df_text   = df[text_cols]
     return df_num, df_text, num_cols, text_cols
 
+def smart_drop(df):
+
+    drop_keywords = [
+        "id", "user_id", "customer_id", "order_id", "transaction_id",
+        "session_id", "product_id", "uuid", "guid", "index", "row_id",
+        "email", "phone", "mobile", "passport", "nic", "credit_card",
+        "address", "ip", "device", "mac", "username", "profile_url"
+    ]
+
+    cols_to_drop = []
+
+    for col in df.columns:
+        col_low = col.lower()
+
+        if any(k in col_low for k in drop_keywords):
+            cols_to_drop.append(col)
+            continue
+
+        if df[col].nunique() == 1:
+            cols_to_drop.append(col)
+            continue
+
+        if df[col].dtype == "object":
+            if df[col].nunique() > 0.95 * len(df):
+                cols_to_drop.append(col)
+                continue
+
+    cleaned_df = df.drop(columns=cols_to_drop, errors="ignore")
+
+    return cleaned_df, cols_to_drop
+
 def combineDFs(df_1, df_2):
     return pd.concat([df_1, df_2], axis=1)
 
@@ -180,6 +211,8 @@ def predict():
 
     if df.shape[1] < 2:
         return jsonify({'error': 'CSV must have at least 2 columns'}), 400
+    
+    df, _ = smart_drop(df);
 
     df = handle_missing_values(df, missing_method)
     if df.shape[0] < 10:
